@@ -9,6 +9,7 @@ DESCRIPTION:
 import sys
 import socket
 import mimetypes
+import subprocess
 
 STATUS_CODES = {
     200: "OK",
@@ -31,21 +32,28 @@ def sendFile(client, fname):
         client.send(line)
     fh.close()
 
+def sendScriptOutput(client, fname, subenv):
+    sendStatus(client, 200)
+    output = subprocess.call(["python", fname], env = subenv, stdout = client)
 
 def sendMessage(client, message, status=200):
     sendHeaders(client, status, "text/plain", str(len(message)))
     client.sendall(message)
 
 def sendHeaders(client, status=200, mime="text/plain", size=0):
-    client.send("HTTP/1.1 " + str(status) + " " + STATUS_CODES[status] + "\n")
+    sendStatus(client, status)
     client.send("Connection: close\n")
     client.send("Content-Type: " + mime + "\n")
     client.send("Content-Length: " + str(size) + "\n")
     client.send("\n")
 
+def sendStatus(client, status=200):
+    client.send("HTTP/1.1 " + str(status) + " " + STATUS_CODES[status] + "\n")
+
 def serve(IP, PORT, PUBLIC_HTML, CGIBIN):
 
     mimetypes.init()
+
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.bind((IP, PORT))
     server.listen(10)
@@ -64,24 +72,47 @@ def serve(IP, PORT, PUBLIC_HTML, CGIBIN):
 
                 print data
 
-                # invalid request
-                if len(req) < 3:
-                    client.close()
-                    break
+                # valid request
+                if len(req) >= 3:
 
-                # only GET requests are supported
-                elif req[0] != "GET":
-                    body = "Sorry, unable to handle " + req[0] + " requests"
-                    sendMessage(client, body, 501)
+                    method = str(req[0])
+                    request = str(req[1])
+                    req_parts = request.split("?")
+                    if len(req_parts) >= 2:
+                        uri, query = req_parts[0:1]
+                    else:
+                        uri, query = request, ""
 
-                # check if resource exists
-                elif not os.path.isfile(PUBLIC_HTML + "/" + req[1]) :
-                    body = "File '" + str(req[1]) + "' was not found :("
-                    sendMessage(client, body, 404)
+                    # default to index.html
+                    if uri == "/":
+                        uri = "/index.html"
 
-                # send the file contents
-                else:
-                    sendFile(client, PUBLIC_HTML + "/" + req[1])
+                    # only GET requests are supported
+                    if method != "GET":
+                        body = "Sorry, unable to handle " + method + " requests"
+                        sendMessage(client, body, 501)
+
+                    # cgi-bin handling - check if script exists
+                    elif uri[0:len("/cgi-bin/")] == "/cgi-bin/" and os.path.isfile(CGIBIN + "/" + uri[len("/cgi-bin/"):]):
+                        script = CGIBIN + "/" + uri[len("/cgi-bin/"):]
+
+                        env = {
+                            "DOCUMENT_ROOT": str(PUBLIC_HTML),
+                            "REQUEST_METHOD": str(method),
+                            "REQUEST_URI": str(uri),
+                            "QUERY_STRING": str(query),
+                            "PATH": os.environ["PATH"]
+                        }
+                        sendScriptOutput(client, script, env)
+
+                    # check if static resource exists
+                    elif os.path.isfile(PUBLIC_HTML + "/" + uri):
+                        sendFile(client, PUBLIC_HTML + "/" + uri)
+
+                    # send 404
+                    else:
+                        body = "File '" + uri + "' was not found :("
+                        sendMessage(client, body, 404)
 
                 # close connection
                 client.close()

@@ -29,7 +29,7 @@ def sendFile(client, fname):
     sendHeaders(client, 200, mime, size)
     fh = open(fname, "r")
     for line in fh:
-        client.send(line)
+        client.sendall(line)
     fh.close()
 
 def sendScriptOutput(client, fname, subenv):
@@ -42,19 +42,20 @@ def sendMessage(client, message, status=200):
 
 def sendHeaders(client, status=200, mime="text/plain", size=0):
     sendStatus(client, status)
-    client.send("Connection: close\n")
-    client.send("Content-Type: " + mime + "\n")
-    client.send("Content-Length: " + str(size) + "\n")
-    client.send("\n")
+    client.sendall("Connection: close\n")
+    client.sendall("Content-Type: " + mime + "\n")
+    client.sendall("Content-Length: " + str(size) + "\n")
+    client.sendall("\n")
 
 def sendStatus(client, status=200):
-    client.send("HTTP/1.1 " + str(status) + " " + STATUS_CODES[status] + "\n")
+    client.sendall("HTTP/1.1 " + str(status) + " " + STATUS_CODES[status] + "\n")
 
 def serve(IP, PORT, PUBLIC_HTML, CGIBIN):
 
     mimetypes.init()
 
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server.bind((IP, PORT))
     server.listen(10)
 
@@ -70,7 +71,7 @@ def serve(IP, PORT, PUBLIC_HTML, CGIBIN):
                 data = client.recv(1024)
                 req = data.split();
 
-                print data
+                #print data
 
                 # valid request
                 if len(req) >= 3:
@@ -79,7 +80,7 @@ def serve(IP, PORT, PUBLIC_HTML, CGIBIN):
                     request = str(req[1])
                     req_parts = request.split("?")
                     if len(req_parts) >= 2:
-                        uri, query = req_parts[0:1]
+                        uri, query = req_parts[0:2]
                     else:
                         uri, query = request, ""
 
